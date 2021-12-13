@@ -1,0 +1,13 @@
+[package]
+name = "carbon-alert"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4.14"
+reqwest = { version = "0.11", features = ["json"] }
+rumqttc = "0.10.0"
+structopt = "0.3.25"
+tokio = { version = "1", features = ["full"] }
