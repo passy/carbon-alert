@@ -1,0 +1,11 @@
+---
+source: src/main.rs
+expression: res
+
+---
+Error(
+    ErrorResponse {
+        code: "400 Bad Request",
+        message: "Please enter a valid region ID i.e. 1-17.",
+    },
+)

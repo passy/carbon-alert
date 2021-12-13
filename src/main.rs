@@ -202,4 +202,19 @@ mod test {
         let res: RegionalResponse = serde_path_to_error::deserialize(jd).unwrap();
         insta::assert_debug_snapshot!(res);
     }
+
+    #[test]
+    fn test_error() {
+        let j = r#"
+{
+    "error": {
+        "code": "400 Bad Request",
+        "message": "Please enter a valid region ID i.e. 1-17."
+    }
+}
+        "#;
+        let jd = &mut serde_json::Deserializer::from_str(j);
+        let res: RegionalResponse = serde_path_to_error::deserialize(jd).unwrap();
+        insta::assert_debug_snapshot!(res);
+    }
 }
