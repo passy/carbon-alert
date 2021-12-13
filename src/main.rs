@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 struct Config {
     region: RegionId,
+    twitter_consumer_key: String,
+    twitter_consumer_secret: String,
+    twitter_access_token: String,
+    twitter_access_secret: String,
 }
 
 #[derive(Debug)]
@@ -32,7 +36,7 @@ impl<'de> serde::Deserialize<'de> for Intensity {
     }
 }
 
-#[derive(serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Debug)]
+#[derive(serde_repr::Serialize_repr, serde_repr::Deserialize_repr, PartialEq, Debug, Clone)]
 #[repr(u16)]
 enum RegionId {
     NorthScotland = 1,
@@ -122,7 +126,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
     let config = Config {
         region: RegionId::London,
+        twitter_consumer_key: todo!(),
+        twitter_consumer_secret: todo!(),
+        twitter_access_token: todo!(),
+        twitter_access_secret: todo!(),
     };
+    tweet(config.clone()).await?;
     let url = format!(
         "https://api.carbonintensity.org.uk/regional/regionid/{}",
         config.region as u16
@@ -130,6 +139,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::trace!("{}", url);
     let resp: RegionalResponse = reqwest::get(&url).await?.json().await?;
     log::info!("{:#?}", resp);
+    Ok(())
+}
+
+async fn tweet(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let con_token = egg_mode::KeyPair::new(
+        &config.twitter_consumer_key,
+        &config.twitter_consumer_secret,
+    );
+    let access_token =
+        egg_mode::KeyPair::new(&config.twitter_access_token, &config.twitter_access_secret);
+    let token = egg_mode::Token::Access {
+        consumer: con_token,
+        access: access_token,
+    };
+
+    use egg_mode::tweet::DraftTweet;
+
+    let post = DraftTweet::new("Hey Twitter!").send(&token).await?;
+    dbg!(post);
+
+    drop(token);
+    drop(config);
+
     Ok(())
 }
 
