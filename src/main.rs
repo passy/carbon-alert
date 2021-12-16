@@ -9,7 +9,7 @@ struct Config {
     twitter_access_secret: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum Intensity {
     Low,
     Moderate,
@@ -115,7 +115,7 @@ mod carbon_date_format {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Clone, Copy)]
 struct IntensityResponse {
     index: Intensity,
     forecast: u32,
@@ -131,24 +131,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         twitter_access_token: todo!(),
         twitter_access_secret: todo!(),
     };
-    tweet(config.clone()).await?;
     let url = format!(
         "https://api.carbonintensity.org.uk/regional/regionid/{}",
-        config.region as u16
+        config.clone().region as u16
     );
     log::trace!("{}", url);
     let resp: RegionalResponse = reqwest::get(&url).await?.json().await?;
     log::info!("{:#?}", resp);
+    let intensity = match resp {
+        RegionalResponse::Data(d) => d[0].data[0].intensity,
+        RegionalResponse::Error(e) => {
+            eprintln!("Error: {:?}", e);
+            std::process::exit(1);
+        }
+    };
+    tweet(config.clone(), intensity).await?;
     Ok(())
 }
 
-async fn tweet(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let con_token = egg_mode::KeyPair::new(
-        &config.twitter_consumer_key,
-        &config.twitter_consumer_secret,
-    );
+async fn tweet(
+    config: Config,
+    intensity: IntensityResponse,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let con_token =
+        egg_mode::KeyPair::new(config.twitter_consumer_key, config.twitter_consumer_secret);
     let access_token =
-        egg_mode::KeyPair::new(&config.twitter_access_token, &config.twitter_access_secret);
+        egg_mode::KeyPair::new(config.twitter_access_token, config.twitter_access_secret);
     let token = egg_mode::Token::Access {
         consumer: con_token,
         access: access_token,
@@ -156,11 +164,13 @@ async fn tweet(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     use egg_mode::tweet::DraftTweet;
 
-    let post = DraftTweet::new("Hey Twitter!").send(&token).await?;
+    let post = DraftTweet::new(format!(
+        "The current carbon intensity for London is {:?} with approximately {} gCO2/KWh.",
+        intensity.index, intensity.forecast
+    ))
+    .send(&token)
+    .await?;
     dbg!(post);
-
-    drop(token);
-    drop(config);
 
     Ok(())
 }
