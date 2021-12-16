@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct Config {
@@ -7,6 +7,8 @@ struct Config {
     twitter_consumer_secret: String,
     twitter_access_token: String,
     twitter_access_secret: String,
+    mqtt_host: String,
+    mqtt_port: u16,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -145,8 +147,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     };
-    tweet(config.clone(), intensity).await?;
+    run_mqtt(config, intensity).await?;
+    //tweet(config.clone(), intensity).await?;
     Ok(())
+}
+
+async fn run_mqtt(
+    config: Config,
+    intensity: IntensityResponse,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut mqttoptions = rumqttc::MqttOptions::new("mqtt", config.mqtt_host, config.mqtt_port);
+    mqttoptions.set_keep_alive(Duration::from_secs(5));
+
+    let (mut client, mut event_loop) = rumqttc::AsyncClient::new(mqttoptions, 10);
+    client
+        .subscribe("hello/rumqtt", rumqttc::QoS::AtMostOnce)
+        .await?;
+
+    tokio::task::spawn(async move {
+        for i in 0..10 {
+            client
+                .publish(
+                    "hello/rumqtt",
+                    rumqttc::QoS::AtLeastOnce,
+                    false,
+                    format!("hello world, {}", i),
+                )
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+
+    loop {
+        let notification = event_loop.poll().await?;
+        println!("Received {:?}", notification);
+    }
 }
 
 async fn tweet(
