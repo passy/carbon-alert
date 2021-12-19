@@ -1,3 +1,4 @@
+use async_stream::stream;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -8,6 +9,7 @@ struct Config {
     twitter_access_token: String,
     twitter_access_secret: String,
     mqtt: MQTTConnectionConfig,
+    poll_interval_secs: u64,
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -156,6 +158,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //tweet(config.clone(), intensity).await?;
     let _ = tokio::join!(handle);
     Ok(())
+}
+
+async fn poll_api(
+    config: Config,
+) -> async_stream::AsyncStream<
+    Result<IntensityResponse, Box<dyn std::error::Error>>,
+    impl std::future::Future,
+> {
+    let url = format!(
+        "https://api.carbonintensity.org.uk/regional/regionid/{}",
+        config.clone().region as u16
+    );
+    stream! {
+        loop {
+            let resp: RegionalResponse = reqwest::get(&url).await?.json().await?;
+            let intensity = match resp {
+                RegionalResponse::Data(d) => d[0].data[0].intensity,
+                RegionalResponse::Error(e) => {
+                    panic!("Error: {}", e.message);
+
+                }
+            };
+            yield Ok(intensity);
+            tokio::time::sleep(std::time::Duration::from_secs(config.poll_interval_secs)).await;
+        }
+    }
 }
 
 async fn run_mqtt(
