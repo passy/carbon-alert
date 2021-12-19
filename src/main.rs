@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct Config {
@@ -7,8 +7,15 @@ struct Config {
     twitter_consumer_secret: String,
     twitter_access_token: String,
     twitter_access_secret: String,
-    mqtt_host: String,
-    mqtt_port: u16,
+    mqtt: MQTTConnectionConfig,
+}
+
+#[derive(Debug, serde::Deserialize, Clone)]
+struct MQTTConnectionConfig {
+    host: String,
+    port: u16,
+    user: String,
+    password: String,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -110,7 +117,6 @@ mod carbon_date_format {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        dbg!(&s);
         chrono::Utc
             .datetime_from_str(&s, FORMAT)
             .map_err(serde::de::Error::custom)
@@ -126,20 +132,19 @@ struct IntensityResponse {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
-    let config = Config {
-        region: RegionId::London,
-        twitter_consumer_key: todo!(),
-        twitter_consumer_secret: todo!(),
-        twitter_access_token: todo!(),
-        twitter_access_secret: todo!(),
+    let config = if let Some(path) = std::env::args().collect::<Vec<_>>().get(1) {
+        ron::de::from_str::<Config>(&std::fs::read_to_string(path)?)?
+    } else {
+        eprintln!("ERR: Missing configuration argument.");
+        std::process::exit(1);
     };
     let url = format!(
         "https://api.carbonintensity.org.uk/regional/regionid/{}",
         config.clone().region as u16
     );
-    log::trace!("{}", url);
+    log::trace!("Reading URL {}", url);
     let resp: RegionalResponse = reqwest::get(&url).await?.json().await?;
-    log::info!("{:#?}", resp);
+    log::info!("Response: {:#?}", resp);
     let intensity = match resp {
         RegionalResponse::Data(d) => d[0].data[0].intensity,
         RegionalResponse::Error(e) => {
@@ -147,22 +152,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     };
-    run_mqtt(config, intensity).await?;
+    let handle = tokio::task::spawn(run_mqtt(config, intensity));
     //tweet(config.clone(), intensity).await?;
+    let _ = tokio::join!(handle);
     Ok(())
 }
 
 async fn run_mqtt(
     config: Config,
     intensity: IntensityResponse,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut mqttoptions = rumqttc::MqttOptions::new("mqtt", config.mqtt_host, config.mqtt_port);
-    mqttoptions.set_keep_alive(Duration::from_secs(5));
+) -> Result<(), Box<dyn std::error::Error + 'static + Send>> {
+    let mut client_config = rumqttc::ClientConfig::new();
+    client_config
+        .root_store
+        .add_server_trust_anchors(&webpki_roots_rumqttc::TLS_SERVER_ROOTS);
 
-    let (mut client, mut event_loop) = rumqttc::AsyncClient::new(mqttoptions, 10);
+    let mut mqttoptions = rumqttc::MqttOptions::new("mqtt", config.mqtt.host, config.mqtt.port);
+    mqttoptions
+        .set_keep_alive(Duration::from_secs(5))
+        .set_credentials(config.mqtt.user, config.mqtt.password)
+        .set_transport(rumqttc::Transport::tls_with_config(client_config.into()));
+    let (client, mut event_loop) = rumqttc::AsyncClient::new(mqttoptions, 10);
     client
         .subscribe("hello/rumqtt", rumqttc::QoS::AtMostOnce)
-        .await?;
+        .await
+        .unwrap();
 
     tokio::task::spawn(async move {
         for i in 0..10 {
@@ -180,7 +194,7 @@ async fn run_mqtt(
     });
 
     loop {
-        let notification = event_loop.poll().await?;
+        let notification = event_loop.poll().await.unwrap();
         println!("Received {:?}", notification);
     }
 }
@@ -206,7 +220,6 @@ async fn tweet(
     ))
     .send(&token)
     .await?;
-    dbg!(post);
 
     Ok(())
 }

@@ -19,6 +19,9 @@ serde_repr = "0.1.7"
 chrono = { version = "0.4.19", features = ["serde"] }
 serde_path_to_error = "0.1.5"
 egg-mode = "0.16.0"
+ron = "0.7.0"
+# There's a type incompatibility between rumqttc and the 0.22 version.
+webpki-roots-rumqttc = { version = "0.21", package = "webpki-roots" }
 
 [dev-dependencies]
 insta = "1.8.0"
