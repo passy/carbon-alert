@@ -204,7 +204,17 @@ async fn run_mqtt(
         .set_credentials(config.mqtt.user, config.mqtt.password)
         .set_transport(rumqttc::Transport::tls_with_config(client_config.into()));
 
-    let (client, _event_loop) = rumqttc::AsyncClient::new(mqttoptions, 10);
+    let (client, mut event_loop) = rumqttc::AsyncClient::new(mqttoptions, 10);
+    client
+        .subscribe("carbon/intensity", rumqttc::QoS::AtMostOnce)
+        .await
+        .unwrap();
+    tokio::task::spawn(async move {
+        loop {
+            let event = event_loop.poll().await;
+            println!("event: {:?}", event.unwrap());
+        }
+    });
     while intensity_rx.changed().await.is_ok() {
         let res = *intensity_rx.borrow();
         if let Some(intensity) = res {
