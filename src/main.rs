@@ -1,4 +1,4 @@
-use async_stream::stream;
+use futures_util::stream::StreamExt;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -131,6 +131,14 @@ struct IntensityResponse {
     forecast: u32,
 }
 
+fn zero_to_three() -> impl futures_util::Stream<Item = u32> {
+    async_stream::stream! {
+        for i in 0..3 {
+            yield i;
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
@@ -140,37 +148,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("ERR: Missing configuration argument.");
         std::process::exit(1);
     };
-    let url = format!(
-        "https://api.carbonintensity.org.uk/regional/regionid/{}",
-        config.clone().region as u16
-    );
-    log::trace!("Reading URL {}", url);
-    let resp: RegionalResponse = reqwest::get(&url).await?.json().await?;
-    log::info!("Response: {:#?}", resp);
-    let intensity = match resp {
-        RegionalResponse::Data(d) => d[0].data[0].intensity,
-        RegionalResponse::Error(e) => {
-            eprintln!("Error: {:?}", e);
-            std::process::exit(1);
-        }
-    };
-    let handle = tokio::task::spawn(run_mqtt(config, intensity));
+    //let handle = tokio::task::spawn(run_mqtt(config, intensity));
     //tweet(config.clone(), intensity).await?;
-    let _ = tokio::join!(handle);
+    //let _ = tokio::join!(handle);
+    let stream = poll_api(config.clone());
+    futures_util::pin_mut!(stream);
+    while let Some(n) = stream.next().await {
+        dbg!(n);
+    }
     Ok(())
 }
 
-async fn poll_api(
+fn poll_api(
     config: Config,
-) -> async_stream::AsyncStream<
-    Result<IntensityResponse, Box<dyn std::error::Error>>,
-    impl std::future::Future,
-> {
+) -> impl futures_core::Stream<Item = Result<IntensityResponse, Box<dyn std::error::Error>>> {
     let url = format!(
         "https://api.carbonintensity.org.uk/regional/regionid/{}",
         config.clone().region as u16
     );
-    stream! {
+    async_stream::try_stream! {
         loop {
             let resp: RegionalResponse = reqwest::get(&url).await?.json().await?;
             let intensity = match resp {
@@ -180,7 +176,7 @@ async fn poll_api(
 
                 }
             };
-            yield Ok(intensity);
+            yield intensity;
             tokio::time::sleep(std::time::Duration::from_secs(config.poll_interval_secs)).await;
         }
     }
