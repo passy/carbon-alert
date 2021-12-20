@@ -1,5 +1,6 @@
 use futures_util::stream::StreamExt;
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use tokio::sync::watch;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct Config {
@@ -21,11 +22,12 @@ struct MQTTConnectionConfig {
 }
 
 #[derive(Debug, Copy, Clone)]
+#[repr(u8)]
 enum Intensity {
-    Low,
-    Moderate,
-    High,
-    VeryHigh,
+    Low = 0,
+    Moderate = 1,
+    High = 2,
+    VeryHigh = 3,
 }
 
 impl<'de> serde::Deserialize<'de> for Intensity {
@@ -148,14 +150,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("ERR: Missing configuration argument.");
         std::process::exit(1);
     };
-    //let handle = tokio::task::spawn(run_mqtt(config, intensity));
+    let (tx, mut rx) = tokio::sync::watch::channel::<Option<IntensityResponse>>(None);
+
+    let config2 = config.clone();
+    // HACK: This sucks.
+    let handle = tokio::task::spawn(async move { run_mqtt(config2, rx).await });
     //tweet(config.clone(), intensity).await?;
-    //let _ = tokio::join!(handle);
+
     let stream = poll_api(config.clone());
     futures_util::pin_mut!(stream);
     while let Some(n) = stream.next().await {
-        dbg!(n);
+        tx.send(n.ok())?;
     }
+    let _ = tokio::join!(handle);
     Ok(())
 }
 
@@ -184,7 +191,7 @@ fn poll_api(
 
 async fn run_mqtt(
     config: Config,
-    intensity: IntensityResponse,
+    mut intensity_rx: tokio::sync::watch::Receiver<Option<IntensityResponse>>,
 ) -> Result<(), Box<dyn std::error::Error + 'static + Send>> {
     let mut client_config = rumqttc::ClientConfig::new();
     client_config
@@ -196,31 +203,27 @@ async fn run_mqtt(
         .set_keep_alive(Duration::from_secs(5))
         .set_credentials(config.mqtt.user, config.mqtt.password)
         .set_transport(rumqttc::Transport::tls_with_config(client_config.into()));
-    let (client, mut event_loop) = rumqttc::AsyncClient::new(mqttoptions, 10);
-    client
-        .subscribe("hello/rumqtt", rumqttc::QoS::AtMostOnce)
-        .await
-        .unwrap();
 
-    tokio::task::spawn(async move {
-        for i in 0..10 {
-            client
+    let (client, _event_loop) = rumqttc::AsyncClient::new(mqttoptions, 10);
+    while intensity_rx.changed().await.is_ok() {
+        let res = *intensity_rx.borrow();
+        if let Some(intensity) = res {
+            println!("Publishing: {:?}", intensity);
+            let res = client
                 .publish(
-                    "hello/rumqtt",
+                    "carbon/intensity",
                     rumqttc::QoS::AtLeastOnce,
                     false,
-                    format!("hello world, {}", i),
+                    // TODO: Make this JSON or something.
+                    [intensity.index as u8],
                 )
                 .await
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(1)).await;
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+            dbg!(res);
         }
-    });
-
-    loop {
-        let notification = event_loop.poll().await.unwrap();
-        println!("Received {:?}", notification);
     }
+
+    Ok(())
 }
 
 async fn tweet(

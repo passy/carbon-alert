@@ -25,6 +25,7 @@ webpki-roots-rumqttc = { version = "0.21", package = "webpki-roots" }
 async-stream = "0.3.2"
 futures-util = "0.3.19"
 futures-core = "0.3.19"
+anyhow = "1.0.51"
 
 [dev-dependencies]
 insta = "1.8.0"
