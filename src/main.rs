@@ -150,19 +150,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("ERR: Missing configuration argument.");
         std::process::exit(1);
     };
-    let (tx, mut rx) = tokio::sync::watch::channel::<Option<IntensityResponse>>(None);
+    let (tx, rx) = tokio::sync::watch::channel::<Option<IntensityResponse>>(None);
 
-    let config2 = config.clone();
-    // HACK: This sucks.
-    let handle = tokio::task::spawn(async move { run_mqtt(config2, rx).await });
-    //tweet(config.clone(), intensity).await?;
+    let mqtt_handle = tokio::task::spawn(run_mqtt(config.clone(), rx.clone()));
+    let tweet_handle = tokio::task::spawn(run_tweeter(config.clone(), rx));
 
     let stream = poll_api(config.clone());
     futures_util::pin_mut!(stream);
     while let Some(n) = stream.next().await {
         tx.send(n.ok())?;
     }
-    let _ = tokio::join!(handle);
+    let _ = tokio::join!(mqtt_handle, tweet_handle);
     Ok(())
 }
 
@@ -219,7 +217,7 @@ async fn run_mqtt(
         let res = *intensity_rx.borrow();
         if let Some(intensity) = res {
             println!("Publishing: {:?}", intensity);
-            let res = client
+            client
                 .publish(
                     "carbon/intensity",
                     rumqttc::QoS::AtLeastOnce,
@@ -229,10 +227,16 @@ async fn run_mqtt(
                 )
                 .await
                 .map_err(|e| anyhow::Error::msg(e.to_string()))?;
-            dbg!(res);
         }
     }
 
+    Ok(())
+}
+
+async fn run_tweeter(
+    config: Config,
+    mut intensity_rx: tokio::sync::watch::Receiver<Option<IntensityResponse>>,
+) -> Result<(), Box<dyn std::error::Error + 'static + Send>> {
     Ok(())
 }
 
