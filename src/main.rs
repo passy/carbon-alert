@@ -11,6 +11,7 @@ struct Config {
     twitter_access_secret: String,
     mqtt: MQTTConnectionConfig,
     poll_interval_secs: u64,
+    tweet_interval_secs: u64,
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -133,14 +134,6 @@ struct IntensityResponse {
     forecast: u32,
 }
 
-fn zero_to_three() -> impl futures_util::Stream<Item = u32> {
-    async_stream::stream! {
-        for i in 0..3 {
-            yield i;
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
@@ -237,17 +230,31 @@ async fn run_tweeter(
     config: Config,
     mut intensity_rx: tokio::sync::watch::Receiver<Option<IntensityResponse>>,
 ) -> Result<(), Box<dyn std::error::Error + 'static + Send>> {
-    Ok(())
+    loop {
+        if intensity_rx.changed().await.is_ok() {
+            let res = *intensity_rx.borrow();
+            if let Some(intensity) = res {
+                tweet(&config, intensity)
+                    .await
+                    .map_err(|e| anyhow::Error::msg(e))?;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(config.tweet_interval_secs)).await;
+    }
 }
 
 async fn tweet(
-    config: Config,
+    config: &Config,
     intensity: IntensityResponse,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let con_token =
-        egg_mode::KeyPair::new(config.twitter_consumer_key, config.twitter_consumer_secret);
-    let access_token =
-        egg_mode::KeyPair::new(config.twitter_access_token, config.twitter_access_secret);
+) -> Result<egg_mode::Response<egg_mode::tweet::Tweet>, egg_mode::error::Error> {
+    let con_token = egg_mode::KeyPair::new(
+        config.twitter_consumer_key.to_string(),
+        config.twitter_consumer_secret.to_string(),
+    );
+    let access_token = egg_mode::KeyPair::new(
+        config.twitter_access_token.to_string(),
+        config.twitter_access_secret.to_string(),
+    );
     let token = egg_mode::Token::Access {
         consumer: con_token,
         access: access_token,
@@ -262,7 +269,9 @@ async fn tweet(
     .send(&token)
     .await?;
 
-    Ok(())
+    dbg!(&post);
+
+    Ok(post)
 }
 
 #[cfg(test)]
