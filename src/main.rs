@@ -1,6 +1,5 @@
 use futures_util::stream::StreamExt;
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::watch;
+use std::time::Duration;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct Config {
@@ -22,7 +21,7 @@ struct MQTTConnectionConfig {
     password: String,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, serde::Serialize)]
 #[repr(u8)]
 enum Intensity {
     Low = 0,
@@ -128,7 +127,7 @@ mod carbon_date_format {
     }
 }
 
-#[derive(Debug, serde::Deserialize, Clone, Copy)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Copy)]
 struct IntensityResponse {
     index: Intensity,
     forecast: u32,
@@ -215,10 +214,10 @@ async fn run_mqtt(
                     "carbon/intensity",
                     rumqttc::QoS::AtLeastOnce,
                     false,
-                    // TODO: Make this JSON or something.
                     [intensity.index as u8],
                 )
                 .await
+                // HACK: Properly handle errors
                 .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         }
     }
