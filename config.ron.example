@@ -1,0 +1,14 @@
+Config(
+    region: 13,
+    twitter_consumer_key: "deadbeef",
+    twitter_consumer_secret: "deadbeef",
+    twitter_access_token: "deadbeef",
+    twitter_access_secret: "deadbeef",
+    poll_interval_secs: 120,
+    tweet_interval_secs: 9000,
+    mqtt: (
+        host: "yourbroker.example.com",
+        port: 8883,
+        user: "user",
+        password: "deadbeef",)
+)
