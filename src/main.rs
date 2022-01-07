@@ -202,7 +202,9 @@ async fn run_mqtt(
     tokio::task::spawn(async move {
         loop {
             let event = event_loop.poll().await;
-            println!("event: {:?}", event.unwrap());
+            if let Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish))) = event {
+                log::info!("Publish event: {:?}", publish);
+            }
         }
     });
     while intensity_rx.changed().await.is_ok() {
