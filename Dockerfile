@@ -1,9 +1,8 @@
-FROM rust as builder
+FROM rust AS builder
 WORKDIR /app
 COPY . .
-RUN cargo build --release --bin carbon-alert
+RUN cargo install --path .
 
 FROM debian:stable-slim AS runtime
-WORKDIR /app
-COPY --from=builder /app/target/release/carbon-alert /usr/local/bin
+COPY --from=builder /usr/local/cargo/bin/carbon-alert /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/carbon-alert"]

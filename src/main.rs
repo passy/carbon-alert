@@ -136,10 +136,11 @@ struct IntensityResponse {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
+    log::info!("Starting up.");
     let config = if let Some(path) = std::env::args().collect::<Vec<_>>().get(1) {
         ron::de::from_str::<Config>(&std::fs::read_to_string(path)?)?
     } else {
-        eprintln!("ERR: Missing configuration argument.");
+        log::error!("ERR: Missing configuration argument.");
         std::process::exit(1);
     };
     let (tx, rx) = tokio::sync::watch::channel::<Option<IntensityResponse>>(None);
@@ -149,7 +150,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let stream = poll_api(config.clone());
     futures_util::pin_mut!(stream);
+    log::debug!("Polling API stream.");
     while let Some(n) = stream.next().await {
+        log::debug!("Received new data: {:?}", &n);
         tx.send(n.ok())?;
     }
     let _ = tokio::join!(mqtt_handle, tweet_handle);
@@ -210,7 +213,7 @@ async fn run_mqtt(
     while intensity_rx.changed().await.is_ok() {
         let res = *intensity_rx.borrow();
         if let Some(intensity) = res {
-            println!("Publishing: {:?}", intensity);
+            log::info!("Publishing: {:?}", intensity);
             client
                 .publish(
                     "carbon/intensity",
