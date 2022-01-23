@@ -138,15 +138,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
     log::info!("Starting up.");
     let config = if let Some(path) = std::env::args().collect::<Vec<_>>().get(1) {
-        ron::de::from_str::<Config>(&std::fs::read_to_string(path)?)?
+        let config_str = tokio::fs::read_to_string(path).await?;
+        ron::de::from_str::<Config>(&config_str)?
     } else {
         log::error!("ERR: Missing configuration argument.");
         std::process::exit(1);
     };
+    log::trace!("Parsed config: {:?}", config);
     let (tx, rx) = tokio::sync::watch::channel::<Option<IntensityResponse>>(None);
 
     let mqtt_handle = tokio::task::spawn(run_mqtt(config.clone(), rx.clone()));
     let tweet_handle = tokio::task::spawn(run_tweeter(config.clone(), rx));
+    log::trace!("Set up handles.");
 
     let stream = poll_api(config.clone());
     futures_util::pin_mut!(stream);
@@ -202,6 +205,7 @@ async fn run_mqtt(
         .subscribe("carbon/intensity", rumqttc::QoS::AtMostOnce)
         .await
         .unwrap();
+    log::info!("Connected to MQTT broker.");
     tokio::task::spawn(async move {
         loop {
             let event = event_loop.poll().await;
@@ -240,7 +244,7 @@ async fn run_tweeter(
             if let Some(intensity) = res {
                 tweet(&config, intensity)
                     .await
-                    .map_err(|e| anyhow::Error::msg(e))?;
+                    .map_err(anyhow::Error::msg)?;
             }
         }
         tokio::time::sleep(std::time::Duration::from_secs(config.tweet_interval_secs)).await;
