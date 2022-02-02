@@ -24,10 +24,11 @@ struct MQTTConnectionConfig {
 #[derive(Debug, Copy, Clone, serde::Serialize)]
 #[repr(u8)]
 enum Intensity {
-    Low = 0,
-    Moderate = 1,
-    High = 2,
-    VeryHigh = 3,
+    VeryLow = 0,
+    Low = 1,
+    Moderate = 2,
+    High = 3,
+    VeryHigh = 4,
 }
 
 impl<'de> serde::Deserialize<'de> for Intensity {
@@ -37,6 +38,7 @@ impl<'de> serde::Deserialize<'de> for Intensity {
     {
         let s = String::deserialize(deserializer)?;
         match s.as_str() {
+            "very low" => Ok(Intensity::VeryLow),
             "low" => Ok(Intensity::Low),
             "moderate" => Ok(Intensity::Moderate),
             "high" => Ok(Intensity::High),
